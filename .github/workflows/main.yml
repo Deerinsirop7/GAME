@@ -1,0 +1,59 @@
+name: Build Windows EXE
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.3"
+    steps:
+      - name: Get project
+        uses: actions/checkout@v4
+
+      - name: Download Godot and export templates
+        run: |
+          BASE=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          wget -q $BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          wget -q $BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot
+          chmod +x godot
+          TPL=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p $TPL
+          unzip -q Godot_v${GODOT_VERSION}-stable_export_templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates/* $TPL/
+          rm -f *.zip *.tpz
+
+      - name: Import assets
+        run: timeout 600 ./godot --headless --path . --editor --quit 2>&1 | tee import.log || true
+
+      - name: Smoke test (catch script errors)
+        run: |
+          timeout 120 ./godot --headless --path . --quit-after 300 2>&1 | tee run.log || true
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Compile Error" import.log run.log; then
+            echo "::error::Script errors found"
+            exit 1
+          fi
+
+      - name: Export Windows exe
+        run: |
+          mkdir -p build
+          ./godot --headless --path . --export-release "Windows Desktop" build/PixelPet.exe 2>&1 | tee export.log
+          test -f build/PixelPet.exe
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: PixelPet-Windows
+          path: build/PixelPet.exe
+          if-no-files-found: error
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: "*.log"
