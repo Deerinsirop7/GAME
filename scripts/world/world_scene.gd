@@ -1,27 +1,26 @@
 extends Node
-## Игровой мир 320x180 (масштаб x2): небо, двор или комната, персонаж, питомец,
+## Игровой мир 320x180 (масштаб x2): небо, двор или комната, питомец, миска,
 ## погода, ночное освещение и всплывающие эффекты.
 
 const SkyView = preload("res://scripts/world/sky.gd")
 const WeatherFX = preload("res://scripts/world/weather_fx.gd")
-const CharacterView = preload("res://scripts/world/character_view.gd")
 const PetView = preload("res://scripts/world/pet_view.gd")
 
-const HOUSE_POS := Vector2(78, 140)
-const CHAR_OUT := Vector2(178, 146)
-const PET_OUT := Vector2(214, 146)
-const CHAR_IN := Vector2(172, 148)
-const PET_IN := Vector2(208, 148)
-const RANGE_OUT := Vector2(198, 250)
-const RANGE_IN := Vector2(198, 238)
+const HOUSE_POS := Vector2(70, 140)
+const PET_OUT := Vector2(205, 146)
+const PET_IN := Vector2(196, 150)
+const BOWL_OUT := Vector2(164, 148)
+const BOWL_IN := Vector2(134, 152)
+const RANGE_OUT := Vector2(150, 300)
+const RANGE_IN := Vector2(126, 252)
 
 var show_house := true
 var interior := false
 var sky: Node2D
 var world: Node2D
 var fx: Node2D
-var character
 var pet
+var bowl: Sprite2D
 
 var _sky_layer: CanvasLayer
 var _mod: CanvasModulate
@@ -104,10 +103,10 @@ func _build_outside_static() -> void:
 	var hills := Sprite2D.new()
 	hills.texture = Art.tex("world/hills")
 	hills.centered = false
-	hills.position = Vector2(0, 70)
+	hills.position = Vector2(0, 68)
 	_outside.add_child(hills)
-	for t in [["world/tree_round", Vector2(166, 138)], ["world/tree_pine", Vector2(306, 136)],
-			["world/tree_pine", Vector2(12, 132)], ["world/bush", Vector2(236, 140)]]:
+	for t in [["world/tree_round", Vector2(176, 136)], ["world/tree_pine", Vector2(310, 134)],
+			["world/tree_pine", Vector2(10, 132)], ["world/bush", Vector2(244, 138)]]:
 		var s := Art.bottom_sprite(t[0])
 		s.position = t[1]
 		_outside.add_child(s)
@@ -119,8 +118,11 @@ func _build_outside_static() -> void:
 	var path := Sprite2D.new()
 	path.texture = Art.tex("world/path")
 	path.centered = false
-	path.position = Vector2(HOUSE_POS.x - 20, HOUSE_POS.y)
+	path.position = Vector2(HOUSE_POS.x - 22, HOUSE_POS.y)
 	_outside.add_child(path)
+	var fence := Art.bottom_sprite("world/fence")
+	fence.position = Vector2(290, 139)
+	_outside.add_child(fence)
 
 
 func _make_glow_tex() -> Texture2D:
@@ -165,8 +167,7 @@ func refresh() -> void:
 		_spawned.append(house)
 		for w in Catalog.HOUSES[tier]["windows"]:
 			_add_glow(_glow_out, HOUSE_POS + w, 20.0 if tier == 0 else 14.0)
-	if tier >= 2:
-		_in_bg.texture = Art.tex("house/interior_%d" % (3 if tier >= 3 else 2))
+	_in_bg.texture = Art.tex("house/interior_%d" % tier)
 	if has_game:
 		for id in GameState.data["items"]:
 			var it: Dictionary = Catalog.ITEMS[id]
@@ -182,29 +183,60 @@ func refresh() -> void:
 			_spawned.append(s)
 			if it.has("glow"):
 				_add_glow(_glow_in if inside else _glow_out, it["pos"] + it["glow"], 22.0)
-	if interior and tier < 2:
-		set_interior(false)
+	_update_pet_spots()
 
 
-func add_actors(player: Dictionary, pet_type: String) -> void:
-	character = CharacterView.new()
-	character.setup(player)
+func add_pet(pet_type: String, coat: int) -> void:
 	pet = PetView.new()
-	pet.setup(pet_type)
+	pet.setup(pet_type, coat)
+	if pet_type != "fish":
+		bowl = Sprite2D.new()
+		bowl.centered = true
+		update_bowl()
 	_place_actors()
 
 
+func update_bowl() -> void:
+	if bowl == null or GameState.data.is_empty():
+		return
+	bowl.texture = Art.tex("fx/bowl_%d" % clampi(int(GameState.data["bowl"]), 0, 3))
+	bowl.offset = Vector2(0, -bowl.texture.get_height() / 2.0)
+
+
+func bowl_pos() -> Vector2:
+	return BOWL_IN if interior else BOWL_OUT
+
+
+func ground_y() -> float:
+	return PET_IN.y if interior else PET_OUT.y
+
+
+func _update_pet_spots() -> void:
+	if pet == null:
+		return
+	pet.walk_range = RANGE_IN if interior else RANGE_OUT
+	pet.bowl_x = bowl_pos().x if bowl else -1.0
+	pet.bed_x = -1.0
+	if interior and GameState.has_item("pet_bed"):
+		pet.bed_x = Catalog.ITEMS["pet_bed"]["pos"].x
+
+
 func _place_actors() -> void:
-	if character == null:
+	if pet == null:
 		return
 	var target := _in_sort if interior else _out_sort
-	for a in [character, pet]:
+	for a in [pet, bowl]:
+		if a == null:
+			continue
 		if a.get_parent():
 			a.get_parent().remove_child(a)
 		target.add_child(a)
-	character.position = CHAR_IN if interior else CHAR_OUT
 	pet.position = PET_IN if interior else PET_OUT
-	pet.walk_range = RANGE_IN if interior else RANGE_OUT
+	pet.state = "idle"
+	pet.external = false
+	if bowl:
+		bowl.position = bowl_pos()
+	_update_pet_spots()
 
 
 func set_interior(on: bool) -> void:

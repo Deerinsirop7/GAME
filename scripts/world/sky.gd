@@ -6,14 +6,14 @@ const W := 320.0
 const H := 180.0
 ## [час, цвет верха, цвет низа]
 const KEYS := [
-	[0.0, Color("0d1230"), Color("262d5c")],
-	[4.5, Color("121a40"), Color("2e3668")],
-	[6.0, Color("4a5ca8"), Color("f0a68a")],
-	[7.5, Color("6aaeea"), Color("cfe9ff")],
-	[17.0, Color("62a6ea"), Color("cde6ff")],
-	[18.8, Color("5a6ab8"), Color("f5a07a")],
-	[20.3, Color("1d2452"), Color("4a3f78")],
-	[24.0, Color("0d1230"), Color("262d5c")],
+	[0.0, Color("161a3a"), Color("2c3260")],
+	[4.5, Color("1c2248"), Color("3a3a6c")],
+	[6.0, Color("6a6aac"), Color("f4b896")],
+	[7.5, Color("78b4ec"), Color("d2ecff")],
+	[17.0, Color("74b0ea"), Color("d0eaff")],
+	[18.8, Color("7a74b8"), Color("f8b48a")],
+	[20.3, Color("262a58"), Color("54467c")],
+	[24.0, Color("161a3a"), Color("2c3260")],
 ]
 const CLOUD_TEX := ["world/cloud_a", "world/cloud_b", "world/cloud_c"]
 const CLOUD_COUNT := {"sunny": 3, "cloudy": 7, "rain": 9}

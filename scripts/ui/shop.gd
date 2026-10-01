@@ -3,7 +3,7 @@ extends Control
 
 signal closed
 
-const TABS := [["house", "Жильё"], ["out", "Двор"], ["in", "Комната"]]
+const TABS := [["house", "Жильё"], ["out", "Двор"], ["in", "Дом"]]
 
 var _tab := "house"
 var _list: VBoxContainer
@@ -100,11 +100,6 @@ func _rebuild() -> void:
 			var item_id: String = id
 			_list.add_child(_row("items/" + id, it["name"], it["desc"], int(it["price"]), st, lock_text,
 				func(): _buy_item(item_id)))
-		if _tab == "in" and int(GameState.data["house"]) < 2:
-			var note := UIKit.label("Мебель для комнаты появится, когда у тебя будет Маленький дом.", 13, Color("8a5a7a"))
-			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			note.custom_minimum_size = Vector2(500, 0)
-			_list.add_child(note)
 
 
 func _row(icon_path: String, title: String, desc: String, price: int, status: String, lock_text: String, cb: Callable) -> Control:

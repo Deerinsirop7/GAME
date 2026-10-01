@@ -5,6 +5,7 @@ signal needs_changed
 signal coins_changed(total: int, delta: int)
 signal state_changed          # куплен дом или предмет
 signal pet_woke
+signal sleep_changed(sleeping: bool)
 signal friendship_up(level: int)
 signal screen_requested(screen: String)
 
@@ -21,17 +22,15 @@ const OFFLINE_FLOOR := 20.0        # оффлайн нужды не падают
 
 var data: Dictionary = {}
 var settings := {
-	"music": true, "music_volume": 0.6, "sfx_volume": 0.8,
+	"music": true, "music_volume": 0.4, "sfx_volume": 0.8,
 	"fullscreen": false, "fast_time": false,
 }
 var playing := false               # true, пока открыт основной экран
-var pending_player: Dictionary = {}  # персонаж между экранами создания
 var offline_report: Dictionary = {}
 
 var _coin_acc := 0.0
 var _save_acc := 0.0
 var _emit_acc := 0.0
-var _last_pet_ms := -100000
 
 
 # ------------------------------------------------------------ жизненный цикл
@@ -49,6 +48,7 @@ func _process(delta: float) -> void:
 	if sleeping and float(n["energy"]) >= 100.0:
 		data["sleeping"] = false
 		pet_woke.emit()
+		sleep_changed.emit(false)
 	if is_content():
 		_coin_acc += delta * coin_rate()
 		if _coin_acc >= COIN_INTERVAL:
@@ -71,14 +71,13 @@ func _notification(what: int) -> void:
 
 
 # ------------------------------------------------------------ новая игра / сохранения
-func new_game(player: Dictionary, pet: Dictionary) -> void:
+func new_game(pet: Dictionary) -> void:
 	data = {
-		"version": 1,
-		"player": player,
+		"version": 2,
 		"pet": pet,
-		"needs": {"hunger": 80.0, "joy": 75.0, "energy": 90.0, "clean": 90.0},
+		"needs": {"hunger": 70.0, "joy": 70.0, "energy": 90.0, "clean": 85.0},
 		"coins": 20, "total_coins": 0, "house": 0, "items": [],
-		"xp": 0, "sleeping": false, "interior": false,
+		"xp": 0, "sleeping": false, "interior": false, "bowl": 1,
 		"last_time": Time.get_unix_time_from_system(),
 	}
 	offline_report = {}
@@ -123,17 +122,20 @@ func delete_save() -> void:
 func _fix_types() -> void:
 	for k in ["coins", "total_coins", "house", "xp"]:
 		data[k] = int(data.get(k, 0))
-	var p: Dictionary = data["player"]
-	for k in ["gender", "hair_style", "hair_color", "eye_color", "skin"]:
-		p[k] = int(p.get(k, 0))
+	data["bowl"] = int(data.get("bowl", 1))
+	var pet: Dictionary = data["pet"]
+	pet["coat"] = int(pet.get("coat", 0))
+	data.erase("player")
 	var items: Array[String] = []
 	for it in data.get("items", []):
-		items.append(str(it))
+		if Catalog.ITEMS.has(str(it)):
+			items.append(str(it))
 	data["items"] = items
 	data["sleeping"] = bool(data.get("sleeping", false))
 	data["interior"] = bool(data.get("interior", false))
 	for k in NEEDS:
 		data["needs"][k] = float(data["needs"].get(k, 70.0))
+	data["version"] = 2
 
 
 func _apply_offline() -> void:
@@ -266,69 +268,106 @@ func lowest_need() -> String:
 	return best
 
 
-# ------------------------------------------------------------ действия
-func _fail(msg: String) -> Dictionary:
-	return {"ok": false, "msg": msg}
+# ------------------------------------------------------------ забота (вызывается из мышиных взаимодействий)
+var _care_acc := 0.0
 
 
-func do_action(kind: String) -> Dictionary:
+## Общая награда: когда питомцу действительно была нужна забота — монеты и дружба.
+func _care(need_before: float, gain: float) -> void:
+	if need_before < 70.0 and gain > 0.0:
+		_care_acc += gain
+		while _care_acc >= 20.0:
+			_care_acc -= 20.0
+			add_coins(2)
+			add_xp(1)
+
+
+func _bump(k: String, delta_v: float) -> float:
 	var n: Dictionary = data["needs"]
-	var sleeping: bool = data["sleeping"]
-	var useful := false
-	match kind:
-		"feed":
-			if sleeping:
-				return _fail("Тсс… питомец спит")
-			if n["hunger"] >= 95.0:
-				return _fail("Пока не хочется есть")
-			useful = n["hunger"] < 60.0
-			n["hunger"] = minf(100.0, n["hunger"] + 35.0)
-			n["clean"] = maxf(0.0, n["clean"] - 3.0)
-		"play":
-			if sleeping:
-				return _fail("Тсс… питомец спит")
-			if n["energy"] < 15.0:
-				return _fail("Нет сил играть — пора отдохнуть")
-			if n["joy"] >= 97.0:
-				return _fail("Хочется просто посидеть рядом")
-			useful = n["joy"] < 60.0
-			var play_gain := 25.0 * (1.5 if has_item("toy_box") else 1.0)
-			n["joy"] = minf(100.0, n["joy"] + play_gain)
-			n["energy"] = maxf(0.0, n["energy"] - 10.0)
-			n["hunger"] = maxf(0.0, n["hunger"] - 4.0)
-			n["clean"] = maxf(0.0, n["clean"] - 5.0)
-		"wash":
-			if sleeping:
-				return _fail("Тсс… питомец спит")
-			if n["clean"] >= 95.0:
-				return _fail("И так блестит от чистоты")
-			useful = n["clean"] < 60.0
-			n["clean"] = minf(100.0, n["clean"] + 45.0)
-			var likes: bool = Catalog.PETS[pet_type()]["likes_water"]
-			n["joy"] = clampf(n["joy"] + (3.0 if likes else -4.0), 0.0, 100.0)
-		"sleep":
-			if sleeping:
-				data["sleeping"] = false
-				return {"ok": true, "woke": true}
-			if n["energy"] >= 85.0:
-				return _fail("Спать ещё не хочется")
-			useful = n["energy"] < 50.0
-			data["sleeping"] = true
-		"pet":
-			var now := Time.get_ticks_msec()
-			var pet_gain := 8.0 if now - _last_pet_ms > 6000 else 2.0
-			if sleeping:
-				pet_gain = 2.0
-			_last_pet_ms = now
-			useful = pet_gain > 5.0 and n["joy"] < 70.0
-			n["joy"] = minf(100.0, n["joy"] + pet_gain)
-	var bonus := 0
-	if useful:
-		bonus = 2
-		add_coins(bonus)
-		add_xp(1)
+	var before: float = n[k]
+	n[k] = clampf(before + delta_v, 0.0, 100.0)
+	return before
+
+
+## Насыпать корм в миску. Возвращает текст ошибки или "".
+func pour_food() -> String:
+	if int(data["bowl"]) >= 3:
+		return "Миска уже полная"
+	data["bowl"] = int(data["bowl"]) + 1
 	needs_changed.emit()
-	return {"ok": true, "bonus": bonus}
+	return ""
+
+
+## Питомец съел порцию из миски.
+func eat_portion() -> void:
+	if int(data["bowl"]) <= 0:
+		return
+	data["bowl"] = int(data["bowl"]) - 1
+	var before := _bump("hunger", 18.0)
+	_bump("clean", -1.5)
+	_care(before, 18.0)
+	needs_changed.emit()
+
+
+## Рыбка съела хлопья.
+func eat_flake() -> void:
+	var before := _bump("hunger", 4.0)
+	_care(before, 4.0)
+	needs_changed.emit()
+
+
+func stroke(amount: float) -> void:
+	var n: Dictionary = data["needs"]
+	if float(n["joy"]) > 90.0:
+		amount *= 0.3
+	var before := _bump("joy", amount)
+	_care(before, amount)
+	needs_changed.emit()
+
+
+func scrub(amount: float) -> void:
+	var before := _bump("clean", amount)
+	if not Catalog.PETS[pet_type()]["likes_water"]:
+		_bump("joy", -amount * 0.15)
+	_care(before, amount)
+	needs_changed.emit()
+
+
+## Игра. Возвращает false, если питомец слишком устал.
+func play(amount: float) -> bool:
+	var n: Dictionary = data["needs"]
+	if float(n["energy"]) < 12.0:
+		return false
+	if has_item("toy_box"):
+		amount *= 1.5
+	var before := _bump("joy", amount)
+	_bump("energy", -amount * 0.3)
+	_bump("hunger", -amount * 0.12)
+	_bump("clean", -amount * 0.12)
+	_care(before, amount)
+	needs_changed.emit()
+	return true
+
+
+func can_play() -> bool:
+	return float(data["needs"]["energy"]) >= 12.0
+
+
+## Уложить спать или разбудить. Возвращает текст ошибки или "".
+func toggle_sleep() -> String:
+	if data["sleeping"]:
+		data["sleeping"] = false
+		sleep_changed.emit(false)
+		return ""
+	if float(data["needs"]["energy"]) >= 85.0:
+		return "Спать ещё не хочется"
+	var before: float = data["needs"]["energy"]
+	data["sleeping"] = true
+	if before < 50.0:
+		add_coins(2)
+		add_xp(1)
+	sleep_changed.emit(true)
+	return ""
 
 
 func add_coins(amount: int) -> void:

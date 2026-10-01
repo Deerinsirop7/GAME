@@ -171,18 +171,115 @@ def make_melody(chords, seed, density=0.7, octave=72):
     return mel
 
 
+def soft_note(freq, dur, kind="kalimba"):
+    """Мягкие тембры: kalimba (щипок), bell (музыкальная шкатулка), pad (подушка)."""
+    t = t_(dur)
+    if kind == "kalimba":
+        x = np.sin(2 * np.pi * freq * t) + 0.25 * np.sin(2 * np.pi * freq * 2.0 * t) * np.exp(-t * 18)
+        e = np.exp(-t * 3.2) * np.minimum(1.0, t / 0.004)
+    elif kind == "bell":
+        x = np.sin(2 * np.pi * freq * t) + 0.35 * np.sin(2 * np.pi * freq * 3.01 * t) * np.exp(-t * 6)
+        e = np.exp(-t * 2.2) * np.minimum(1.0, t / 0.003)
+    else:  # pad
+        x = 0.5 * np.sin(2 * np.pi * freq * t) + 0.5 * np.sin(2 * np.pi * freq * 1.004 * t) + 0.15 * np.sin(2 * np.pi * freq * 2 * t)
+        e = np.minimum(1.0, t / 0.8) * np.minimum(1.0, (dur - t) / 0.9)
+    return x * e
+
+
+def render_cozy(bpm, chords, seed, lead="kalimba", bars_per_chord=1, octave=72, density=0.55):
+    """Неспешная пьеса без петли: подушка, тихий бас, редкая мелодия. Заканчивается затуханием."""
+    rng = np.random.default_rng(seed)
+    beat = 60.0 / bpm
+    bar = beat * 4
+    total = bar * len(chords) * bars_per_chord + 4.0
+    out = np.zeros(int(total * SR) + SR)
+
+    def add(t0, sig, g):
+        i = int(t0 * SR)
+        out[i:i + len(sig)] += sig[: max(0, len(out) - i)] * g
+
+    penta = [0, 2, 4, 7, 9]
+    scale = [octave - 12 + p for p in penta] + [octave + p for p in penta]
+    prev = scale[5]
+    for ci, chord in enumerate(chords):
+        t0 = ci * bar * bars_per_chord
+        dur = bar * bars_per_chord
+        for n in chord:
+            add(t0, soft_note(midi(n), dur + 0.6, "pad"), 0.05)
+        for k in range(bars_per_chord):
+            add(t0 + k * bar, soft_note(midi(chord[0] - 12), beat * 2.5, "kalimba"), 0.16)
+            add(t0 + k * bar + beat * 2, soft_note(midi(chord[2] - 12), beat * 2, "kalimba"), 0.09)
+            # редкие арпеджио-капли
+            for j in range(4):
+                if rng.random() < 0.45:
+                    n = chord[j % 3] + 12
+                    add(t0 + k * bar + j * beat + beat / 2, soft_note(midi(n), 1.2, "bell"), 0.035)
+            # мелодия
+            pos = 0.0
+            while pos < 4.0:
+                d = float(rng.choice([1.0, 1.0, 2.0, 0.5, 1.5]))
+                if rng.random() < density:
+                    cands = sorted(scale, key=lambda n: abs(n - prev))[:4]
+                    if pos == 0.0:
+                        cands = [n for n in scale if n % 12 in [c % 12 for c in chord]] or cands
+                        cands = sorted(cands, key=lambda n: abs(n - prev))[:2]
+                    note = int(rng.choice(cands))
+                    prev = note
+                    add(t0 + k * bar + pos * beat, soft_note(midi(note), min(d * beat + 0.8, 2.5), lead), 0.12)
+                pos += d
+    out = lowpass(out, 0.22)
+    fade = int(3.0 * SR)
+    out[-fade:] *= np.linspace(1, 0, fade)
+    return out
+
+
 def gen_music():
     C, Am, F, G = [60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]
-    Em, Dm = [52, 55, 59], [50, 53, 57]
-    day_chords = [C, Am, F, G, C, Em, F, G]
-    mel = make_melody(day_chords, seed=4, density=0.8)
-    day = render_song(104, day_chords, mel, [(0, 1), (1.5, 0.5), (2, 1), (3, 1)], lead="tri", arp_kind="square", seed=2)
-    write("music_day.wav", day, 0.7)
+    Em, Dm, Fm7 = [52, 55, 59], [50, 53, 57], [53, 57, 60]
+    write("music_day_1.wav", render_cozy(72, [C, Am, F, G, C, Em, F, G, F, G, C, C], seed=4), 0.55)
+    write("music_day_2.wav", render_cozy(68, [F, C, Dm, G, F, C, G, C, Am, F, G, C], seed=11, octave=74), 0.55)
+    write("music_night_1.wav", render_cozy(58, [Am, F, C, G, Am, Dm, F, Em, Am, Am], seed=9, lead="bell", octave=69, density=0.4), 0.5)
+    write("music_night_2.wav", render_cozy(56, [F, Em, Dm, C, F, G, C, C], seed=21, lead="bell", octave=72, density=0.35), 0.5)
 
-    night_chords = [Am, F, C, G, Am, Dm, F, Em]
-    mel_n = make_melody(night_chords, seed=9, density=0.55, octave=69)
-    night = render_song(78, night_chords, mel_n, [(0, 2), (2, 2)], lead="sine", arp_kind="tri", pad=True, seed=3)
-    write("music_night.wav", night, 0.6)
+
+def gen_ambient():
+    rng = np.random.default_rng(1)
+    dur = 30.0
+    n = int(SR * dur)
+    # день: лёгкий ветер + редкие птицы
+    wind = lowpass(lowpass(noise(dur, 2), 0.02), 0.05) * 0.6
+    day = wind.copy()
+    for _ in range(14):
+        t0 = rng.uniform(0.5, dur - 1.5)
+        f = rng.uniform(2200, 3600)
+        for k in range(int(rng.integers(2, 5))):
+            seg = sweep(f * rng.uniform(0.9, 1.1), f * rng.uniform(1.15, 1.5), 0.07, "sine")
+            seg = seg * env(len(seg), 0.005, 0.03, 0.5, 0.03)
+            i = int((t0 + k * 0.11) * SR)
+            day[i:i + len(seg)] += seg * 0.22
+    write("ambient_day.wav", _loopable(day), 0.35)
+    # ночь: сверчки
+    night = wind * 0.5
+    t = t_(dur)
+    for base, rate, ph in [(4400, 3.1, 0.0), (4700, 2.6, 1.3)]:
+        chirp = (np.sin(2 * np.pi * rate * t + ph) > 0.55).astype(float)
+        trill = (np.sin(2 * np.pi * 38 * t) > 0).astype(float)
+        night += np.sin(2 * np.pi * base * t) * chirp * trill * 0.12
+    write("ambient_night.wav", _loopable(night), 0.25)
+    # дождь
+    rain = lowpass(noise(dur, 7), 0.35) * 0.5 + lowpass(noise(dur, 8), 0.08) * 0.8
+    for _ in range(220):
+        i = int(rng.uniform(0, n - 400))
+        rain[i:i + 300] += noise(300 / SR, int(rng.integers(1e6))) * np.linspace(1, 0, 300) * 0.4
+    write("ambient_rain.wav", _loopable(rain), 0.4)
+
+
+def _loopable(x, fade_s=1.5):
+    f = int(fade_s * SR)
+    head = x[:f].copy()
+    x = x[f:]
+    x[-f:] = x[-f:] * np.linspace(1, 0, f) + head * np.linspace(0, 1, f)
+    return x
 
 
 # ---------------------------------------------------------------- эффекты
@@ -224,6 +321,27 @@ def gen_sfx():
     write("sfx_sleep.wav", s * env(len(s), 0.05, 0.2, 0.5, 0.3), 0.4)
     write("sfx_pet.wav", seq([79, 84, 91], "sine", 0.09, rel=0.08), 0.45)
     write("sfx_levelup.wav", seq([72, 76, 79, 84, 79, 84, 88], "square", 0.08, 0.25), 0.5)
+    rng2 = np.random.default_rng(9)
+    parts = []
+    for i in range(10):
+        f = rng2.uniform(1800, 3200)
+        s_ = sweep(f, f * 0.8, 0.02, "sine") * env(int(0.02 * SR), 0.001, 0.01, 0.4, 0.008)
+        parts += [s_, np.zeros(int(rng2.uniform(0.01, 0.03) * SR))]
+    write("sfx_pour.wav", np.concatenate(parts), 0.4)
+    sc = lowpass(noise(0.25, 31), 0.25) * env(int(0.25 * SR), 0.05, 0.1, 0.6, 0.08)
+    write("sfx_scrub.wav", sc, 0.3)
+    parts = []
+    for i in range(6):
+        n_ = lowpass(noise(0.06, 40 + i), 0.5) * env(int(0.06 * SR), 0.002, 0.03, 0.3, 0.02)
+        parts += [n_, np.zeros(int(0.025 * SR))]
+    write("sfx_shake.wav", np.concatenate(parts), 0.45)
+    b_ = sweep(180, 90, 0.08, "sine")
+    write("sfx_bounce.wav", b_ * env(len(b_), 0.002, 0.04, 0.3, 0.03), 0.5)
+    bell = soft_note(midi(88), 0.5, "bell") + 0.6 * soft_note(midi(95), 0.5, "bell")
+    write("sfx_bell.wav", bell, 0.4)
+    t = t_(0.9)
+    purr = np.sin(2 * np.pi * 26 * t) * lowpass(noise(0.9, 50), 0.08) * env(len(t), 0.1, 0.2, 0.8, 0.25)
+    write("sfx_purr.wav", purr, 0.5)
     # голоса питомцев
     bark = sweep(420, 300, 0.12, "saw")
     bark = lowpass(bark * env(len(bark), 0.005, 0.05, 0.4, 0.04), 0.3) + 0.3 * lowpass(noise(0.12, 5), 0.3) * env(len(bark), 0.002, 0.05, 0.2, 0.03)
@@ -240,4 +358,5 @@ def gen_sfx():
 if __name__ == "__main__":
     gen_sfx()
     gen_music()
+    gen_ambient()
     print("done ->", os.path.normpath(ROOT))

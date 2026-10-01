@@ -16,8 +16,7 @@ func _ready() -> void:
 	ws = WorldScene.new()
 	add_child(ws)
 	if not GameState.data.is_empty():
-		ws.add_actors(GameState.data["player"], GameState.pet_type())
-		ws.pet.can_walk = true
+		ws.add_pet(GameState.pet_type(), int(GameState.data["pet"]["coat"]))
 
 	var layer := CanvasLayer.new()
 	layer.layer = 10
@@ -70,7 +69,7 @@ func _on_new() -> void:
 		_new_btn.text = "Точно? Прогресс сотрётся"
 		return
 	GameState.delete_save()
-	GameState.screen_requested.emit("creator")
+	GameState.screen_requested.emit("pet_select")
 
 
 func _on_settings() -> void:

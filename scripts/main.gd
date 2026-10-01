@@ -3,7 +3,6 @@ extends Node
 
 const SCREENS := {
 	"title": preload("res://scripts/screens/title.gd"),
-	"creator": preload("res://scripts/screens/character_creator.gd"),
 	"pet_select": preload("res://scripts/screens/pet_select.gd"),
 	"home": preload("res://scripts/screens/home.gd"),
 }

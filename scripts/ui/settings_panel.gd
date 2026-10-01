@@ -29,7 +29,7 @@ func _ready() -> void:
 	v.add_child(_check("Полный экран (F11)", s["fullscreen"], _on_fullscreen))
 	v.add_child(_check("Быстрое время: 1 час = 1 минута", s["fast_time"], _on_fast_time))
 
-	var help := UIKit.label("1–5 — действия · B — магазин · H — дом/двор\nM — музыка · Esc — меню · клик по питомцу — погладить", 11, Color("5a4a66"))
+	var help := UIKit.label("1 рука · 2 корм · 3 губка · 4 игрушка · 5 сон\nB магазин · H дом/двор · M музыка · Esc меню", 11, Color("5a4a66"))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(help)
 
