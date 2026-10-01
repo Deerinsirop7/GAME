@@ -2,7 +2,7 @@ extends Node
 ## Игровой мир 320x180 (масштаб x2): небо, двор или комната, персонаж, питомец,
 ## погода, ночное освещение и всплывающие эффекты.
 
-const Sky = preload("res://scripts/world/sky.gd")
+const SkyView = preload("res://scripts/world/sky.gd")
 const WeatherFX = preload("res://scripts/world/weather_fx.gd")
 const CharacterView = preload("res://scripts/world/character_view.gd")
 const PetView = preload("res://scripts/world/pet_view.gd")
@@ -44,7 +44,7 @@ func _ready() -> void:
 	_sky_layer = CanvasLayer.new()
 	_sky_layer.layer = -10
 	add_child(_sky_layer)
-	sky = Sky.new()
+	sky = SkyView.new()
 	sky.scale = Vector2(2, 2)
 	_sky_layer.add_child(sky)
 
